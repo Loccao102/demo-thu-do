@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTryOnJob } from "@/lib/pixelapi";
+import { getTryOnJob } from "@/lib/snapedit";
 
 export const runtime = "nodejs";
 
@@ -14,9 +14,8 @@ export async function GET(
     return NextResponse.json({
       status: job.status,
       outputUrl: job.output_url,
-      resultBase64: job.output_url ? undefined : job.result_image_b64,
-      inferenceTimeMs: job.inference_time_ms,
-      error: job.error_message || job.detail
+      progress: job.progress,
+      error: job.error_message
     });
   } catch (error) {
     return NextResponse.json(
