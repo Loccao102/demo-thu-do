@@ -1,84 +1,100 @@
-# demo-thu-do — Cloud Virtual Try-On
+# demo-thu-do — Free Cloud Virtual Try-On
 
-Demo thử quần áo bằng AI theo hướng **100% cloud**:
+Demo thử quần áo bằng AI theo hướng **cloud-only, không cần nạp API credits**.
 
-- Frontend + serverless API: Next.js, phù hợp Vercel Hobby.
-- AI Virtual Try-On: SnapEdit.
-- Không cần GPU local, Python server hay model chạy trên máy.
-- API key chỉ nằm ở server (`SNAPEDIT_API_KEY`), không gửi xuống browser.
-- Frontend tự nén ảnh để giảm payload trước khi đi qua serverless function.
+## Stack
 
-## Provider hiện tại: SnapEdit
+- Next.js + serverless route.
+- Hugging Face public Space: `levihsu/OOTDiffusion`.
+- Hugging Face ZeroGPU xử lý inference trên cloud.
+- Không cần GPU local.
+- Không cần API key trả phí.
+- Hỗ trợ:
+  - áo / upper-body
+  - quần, váy / lower-body
+  - đầm / dress
 
-PixelAPI đã tạm dừng cấp API key mới, nên repo chuyển provider mặc định sang SnapEdit.
+## Free thực tế như thế nào?
 
-SnapEdit Virtual Try-On nhận ảnh người + ảnh quần áo và hỗ trợ:
+Hugging Face ZeroGPU có quota GPU miễn phí theo ngày.
 
-- `upper`: áo, jacket, hoodie...
-- `lower`: quần, váy...
-- `full`: đầm / full-body garment.
-- Normal / HD / Ultra. Demo mặc định dùng Normal để tiết kiệm free credits.
+- Không đăng nhập: có quota ZeroGPU dành cho unauthenticated users.
+- Tài khoản Hugging Face Free: có quota cao hơn và ưu tiên queue tốt hơn.
+- `HF_TOKEN` là **tùy chọn**, không bắt buộc để chạy bản demo.
 
-Theo tài liệu SnapEdit hiện tại, tài khoản mới nhận free credits và không cần thẻ để bắt đầu. Đây là **free tier/trial để benchmark**, quota có thể thay đổi theo chính sách của provider.
+Không có cam kết SLA: public Space có thể phải xếp hàng hoặc tạm hết quota khi đông người.
 
 ## Chạy local
-
-1. Đăng ký tại https://snapedit.app/dashboard
-2. Tạo API key trong Dashboard → API Keys.
-3. Copy file env:
-
-~~~bash
-cp .env.example .env.local
-~~~
-
-4. Điền:
-
-~~~env
-SNAPEDIT_API_KEY=sk-snap-...
-~~~
-
-5. Cài và chạy:
 
 ~~~bash
 npm install
 npm run dev
 ~~~
 
-Mở http://localhost:3000
+Mở http://localhost:3000.
 
-## Deploy Vercel Hobby
+Không cần file env cho lần test đầu.
 
-Import repo này vào Vercel, sau đó thêm Environment Variable:
+### Tùy chọn: dùng quota tài khoản Hugging Face Free
 
-~~~text
-SNAPEDIT_API_KEY = sk-snap-...
+Tạo Hugging Face token quyền Read, sau đó:
+
+~~~bash
+cp .env.example .env.local
 ~~~
 
-Redeploy. Không đặt key vào biến `NEXT_PUBLIC_*`.
+~~~env
+HF_TOKEN=hf_xxx
+~~~
+
+Không commit token lên GitHub.
+
+## Deploy Vercel
+
+Import repo vào Vercel và deploy bình thường.
+
+Không cần Environment Variable để chạy ở chế độ unauthenticated.
+
+Nếu muốn dùng quota của tài khoản Hugging Face Free, thêm:
+
+~~~text
+HF_TOKEN = hf_xxx
+~~~
+
+vào Vercel Environment Variables rồi redeploy.
 
 ## Luồng xử lý
 
-1. Browser nhận hai file ảnh.
-2. Ảnh lớn được resize/compress trên client để phù hợp serverless free tier.
-3. `POST /api/tryon` nhận file.
-4. Server gọi `POST https://api.snapedit.app/v1/images/try-on` với `model_image`, `cloth_image`, `cloth_type`.
-5. SnapEdit trả `task_id`.
-6. Frontend poll `GET /api/tryon/{jobId}`; backend gọi `GET /v1/images/try-on/tasks/{task_id}`.
-7. Khi task hoàn tất, server trả URL ảnh kết quả.
+1. Người dùng upload ảnh người và ảnh trang phục.
+2. Browser resize/compress ảnh lớn.
+3. `POST /api/tryon` gửi hai ảnh tới serverless route.
+4. Backend dùng Gradio JS Client gọi public Space `levihsu/OOTDiffusion`.
+5. Endpoint `/process_dc` chạy Virtual Try-On trên ZeroGPU.
+6. Kết quả được trả về và hiển thị ngay trên UI.
 
-## Gợi ý ảnh để test
+## Cấu hình OOTDiffusion dùng trong demo
+
+- 1 ảnh kết quả.
+- 20 inference steps để tiết kiệm thời gian GPU.
+- Guidance scale 2.
+- Random seed.
+- Category được map sang Upper-body / Lower-body / Dress.
+
+## Ảnh test tốt
 
 Ảnh người:
-- Thấy rõ torso với áo.
-- Thấy từ gối trở lên nếu thử quần / dress.
-- Chính diện hoặc lệch nhẹ 3/4.
-- Tránh tay che gần hết phần thân.
+- chính diện hoặc lệch nhẹ;
+- thấy rõ vùng quần áo cần thay;
+- ít vật thể che người.
 
-Ảnh quần áo:
-- Một sản phẩm duy nhất.
-- Flat-lay / ảnh catalog càng rõ càng tốt.
-- Nền sạch, ít vật thể khác.
+Ảnh trang phục:
+- một sản phẩm duy nhất;
+- flat-lay hoặc catalog;
+- nền đơn giản;
+- chọn đúng loại áo/quần/đầm trong UI.
 
-## Lưu ý
+## Giới hạn
 
-Free credits của cloud AI có quota và chính sách có thể thay đổi. Repo tách provider khỏi UI để có thể đổi sang Perfect Corp, FASHN, Google VTO hoặc provider khác mà không phải viết lại trải nghiệm upload/result.
+Đây là public research/demo infrastructure, không phải managed production API. Nếu sau này cần website thương mại có SLA, tốc độ ổn định và concurrency cao thì nên chuyển provider trả phí hoặc tự host model.
+
+OOTDiffusion Space hiện dùng giấy phép non-commercial, vì vậy bản tích hợp này phù hợp cho học tập, đồ án và benchmark/demo; cần rà lại giấy phép trước khi dùng thương mại.
