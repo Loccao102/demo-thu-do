@@ -21,13 +21,31 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const person = formData.get("person");
     const garment = formData.get("garment");
+    const topGarment = formData.get("topGarment");
+    const bottomGarment = formData.get("bottomGarment");
     const category = String(
       formData.get("category") || "upperbody"
     ) as TryOnCategory;
 
-    if (!(person instanceof File) || !(garment instanceof File)) {
+    if (!(person instanceof File)) {
       return NextResponse.json(
-        { error: "Cần đủ ảnh người và ảnh quần áo." },
+        { error: "Thiếu ảnh người." },
+        { status: 400 }
+      );
+    }
+
+    if (
+      category === "set"
+        ? !(topGarment instanceof File) || !(bottomGarment instanceof File)
+        : !(garment instanceof File)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            category === "set"
+              ? "Set cần ảnh áo và ảnh quần đã tách riêng."
+              : "Thiếu ảnh quần áo."
+        },
         { status: 400 }
       );
     }
@@ -39,7 +57,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (person.size > MAX_FILE_BYTES || garment.size > MAX_FILE_BYTES) {
+    const filesToCheck = [
+      person,
+      garment instanceof File ? garment : null,
+      topGarment instanceof File ? topGarment : null,
+      bottomGarment instanceof File ? bottomGarment : null
+    ].filter((file): file is File => Boolean(file));
+
+    if (filesToCheck.some((file) => file.size > MAX_FILE_BYTES)) {
       return NextResponse.json(
         { error: "Ảnh sau khi nén phải nhỏ hơn 2 MB mỗi ảnh." },
         { status: 413 }
@@ -48,7 +73,9 @@ export async function POST(request: NextRequest) {
 
     const result = await tryOnWithFashn({
       person,
-      garment,
+      garment: garment instanceof File ? garment : undefined,
+      topGarment: topGarment instanceof File ? topGarment : undefined,
+      bottomGarment: bottomGarment instanceof File ? bottomGarment : undefined,
       category
     });
 
