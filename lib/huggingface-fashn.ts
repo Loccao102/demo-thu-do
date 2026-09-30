@@ -85,20 +85,26 @@ async function urlToBlob(url: string) {
 
 export async function tryOnWithFashn(input: {
   person: File;
-  garment: File;
+  garment?: File;
+  topGarment?: File;
+  bottomGarment?: File;
   category: TryOnCategory;
 }) {
-  const [personBlob, garmentBlob] = await Promise.all([
-    asBlob(input.person),
-    asBlob(input.garment)
-  ]);
+  const personBlob = await asBlob(input.person);
 
   if (input.category === "set") {
-    // Set hai món: mặc áo trước, sau đó lấy kết quả làm đầu vào để mặc quần.
-    // Dùng cùng ảnh catalog; category của FASHN giúp model tập trung vào đúng món.
+    if (!input.topGarment || !input.bottomGarment) {
+      throw new Error("Set cần topGarment và bottomGarment riêng.");
+    }
+
+    const [topBlob, bottomBlob] = await Promise.all([
+      asBlob(input.topGarment),
+      asBlob(input.bottomGarment)
+    ]);
+
     const topUrl = await runFashn({
       person: personBlob,
-      garment: garmentBlob,
+      garment: topBlob,
       category: "tops"
     });
 
@@ -106,16 +112,22 @@ export async function tryOnWithFashn(input: {
 
     const finalUrl = await runFashn({
       person: personWithTop,
-      garment: garmentBlob,
+      garment: bottomBlob,
       category: "bottoms"
     });
 
     return {
       outputUrl: finalUrl,
       intermediateUrl: topUrl,
-      mode: "set-two-pass" as const
+      mode: "set-two-pass-split" as const
     };
   }
+
+  if (!input.garment) {
+    throw new Error("Thiếu ảnh garment.");
+  }
+
+  const garmentBlob = await asBlob(input.garment);
 
   const category: FashnCategory =
     input.category === "upperbody"
