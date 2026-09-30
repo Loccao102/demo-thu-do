@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { submitTryOn, TryOnCategory } from "@/lib/pixelapi";
+import { submitTryOn, TryOnCategory } from "@/lib/snapedit";
 
 export const runtime = "nodejs";
 
@@ -36,14 +36,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const [personBytes, garmentBytes] = await Promise.all([
-      person.arrayBuffer(),
-      garment.arrayBuffer()
-    ]);
-
     const result = await submitTryOn({
-      personImageBase64: Buffer.from(personBytes).toString("base64"),
-      garmentImageBase64: Buffer.from(garmentBytes).toString("base64"),
+      person,
+      garment,
       category
     });
 
@@ -55,7 +50,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Không thể gửi yêu cầu thử đồ.";
-    const status = message.includes("PIXELAPI_KEY") ? 503 : 502;
+    const status = message.includes("SNAPEDIT_API_KEY") ? 503 : 502;
     return NextResponse.json({ error: message }, { status });
   }
 }
