@@ -98,42 +98,6 @@ export default function Home() {
     };
   }
 
-  async function poll(jobId: string) {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      const response = await fetch("/api/tryon/" + encodeURIComponent(jobId), {
-        cache: "no-store"
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Không lấy được trạng thái xử lý.");
-      }
-
-      if (data.status === "completed") {
-        const image = data.outputUrl;
-        if (!image) throw new Error("API hoàn tất nhưng không trả ảnh kết quả.");
-        setResult(image);
-        setStatus("done");
-        setStatusText(
-          typeof data.progress === "number"
-            ? `Hoàn tất · ${Math.round(data.progress * 100)}%`
-            : "Ảnh đã được tạo trên cloud."
-        );
-        return;
-      }
-
-      if (data.status === "failed") {
-        throw new Error(data.error || "AI không tạo được ảnh. Hãy thử ảnh khác.");
-      }
-
-      setStatus(data.status === "processing" ? "processing" : "queued");
-      setStatusText("Job " + jobId.slice(0, 8) + "…");
-    }
-
-    throw new Error("Job xử lý quá lâu. Hãy thử lại sau.");
-  }
-
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (!person.file || !garment.file) return;
@@ -163,13 +127,13 @@ export default function Home() {
         throw new Error(data.error || "Không thể bắt đầu thử đồ.");
       }
 
-      setStatus("queued");
-      setStatusText(
-        data.etaSeconds
-          ? "Ước tính khoảng " + data.etaSeconds + " giây."
-          : "Đã gửi ảnh lên AI cloud."
-      );
-      await poll(data.jobId);
+      if (!data.outputUrl) {
+        throw new Error("Cloud AI hoàn tất nhưng không trả ảnh kết quả.");
+      }
+
+      setResult(data.outputUrl);
+      setStatus("done");
+      setStatusText("Hoàn tất trên Hugging Face ZeroGPU.");
     } catch (error) {
       setStatus("error");
       setStatusText(error instanceof Error ? error.message : "Đã xảy ra lỗi.");
@@ -188,8 +152,8 @@ export default function Home() {
           {providerReady === null
             ? "Đang kiểm tra API"
             : providerReady
-              ? "SnapEdit đã kết nối"
-              : "Chưa cấu hình API key"}
+              ? "Hugging Face ZeroGPU sẵn sàng"
+              : "Cloud provider chưa sẵn sàng"}
         </div>
       </header>
 
@@ -198,13 +162,13 @@ export default function Home() {
           <p className="eyebrow">CLOUD VIRTUAL TRY-ON</p>
           <h1>Thử quần áo bằng AI,<br />không cần GPU local.</h1>
           <p className="subtitle">
-            Demo cloud-only: ảnh được gửi qua serverless backend tới Virtual Try-On API,
-            API key không xuất hiện ở trình duyệt.
+            Demo cloud-only: ảnh được gửi qua serverless backend tới OOTDiffusion
+            chạy trên Hugging Face ZeroGPU. Không cần nạp API credits.
           </p>
         </div>
         <div className="trialNote">
-          <strong>Free-trial mode</strong>
-          <span>SnapEdit cấp free credits khi đăng ký và không yêu cầu thẻ. Demo đang dùng Normal mode để tiết kiệm credit.</span>
+          <strong>FREE CLOUD MODE</strong>
+          <span>Không cần API key để chạy thử. HF_TOKEN miễn phí chỉ là tùy chọn để có quota ZeroGPU theo tài khoản và ưu tiên queue tốt hơn.</span>
         </div>
       </section>
 
@@ -302,7 +266,7 @@ export default function Home() {
 
       <footer>
         <span>CloudFit experiment</span>
-        <span>Next.js serverless · SnapEdit VTON · no local GPU</span>
+        <span>Next.js serverless · Hugging Face ZeroGPU · OOTDiffusion</span>
       </footer>
     </main>
   );
