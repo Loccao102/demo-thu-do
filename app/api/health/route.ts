@@ -5,7 +5,9 @@ export const runtime = "nodejs";
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    provider: "snapedit",
-    configured: Boolean(process.env.SNAPEDIT_API_KEY)
+    provider: "huggingface-ootdiffusion",
+    configured: true,
+    billingRequired: false,
+    authenticated: Boolean(process.env.HF_TOKEN)
   });
 }
