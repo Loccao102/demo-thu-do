@@ -163,6 +163,237 @@ async function detectGarmentCategory(file: File): Promise<Category | null> {
   return null;
 }
 
+
+type GarmentBox = {
+  area: number;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+async function splitSetGarment(
+  file: File
+): Promise<{ top: File; bottom: File } | null> {
+  const bitmap = await createImageBitmap(file);
+  const originalWidth = bitmap.width;
+  const originalHeight = bitmap.height;
+
+  const target = 240;
+  const scale = Math.min(1, target / Math.max(originalWidth, originalHeight));
+  const width = Math.max(48, Math.round(originalWidth * scale));
+  const height = Math.max(48, Math.round(originalHeight * scale));
+
+  const analysisCanvas = document.createElement("canvas");
+  analysisCanvas.width = width;
+  analysisCanvas.height = height;
+  const ctx = analysisCanvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) {
+    bitmap.close();
+    return null;
+  }
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(bitmap, 0, 0, width, height);
+
+  const image = ctx.getImageData(0, 0, width, height);
+  const pixels = image.data;
+  const samplePoints = [
+    0,
+    Math.floor(width / 2) * 4,
+    (width - 1) * 4,
+    (Math.floor(height / 2) * width) * 4,
+    (Math.floor(height / 2) * width + width - 1) * 4,
+    ((height - 1) * width) * 4,
+    ((height - 1) * width + Math.floor(width / 2)) * 4,
+    ((height - 1) * width + width - 1) * 4
+  ];
+
+  const bg = [0, 1, 2].map(
+    (channel) =>
+      samplePoints.reduce((sum, index) => sum + pixels[index + channel], 0) /
+      samplePoints.length
+  );
+
+  const mask = new Uint8Array(width * height);
+  for (let i = 0; i < width * height; i += 1) {
+    const p = i * 4;
+    const dr = pixels[p] - bg[0];
+    const dg = pixels[p + 1] - bg[1];
+    const db = pixels[p + 2] - bg[2];
+    const distance = Math.sqrt(dr * dr + dg * dg + db * db);
+    if (pixels[p + 3] > 40 && distance > 44) mask[i] = 1;
+  }
+
+  const visited = new Uint8Array(mask.length);
+  const components: GarmentBox[] = [];
+  const minArea = Math.max(60, Math.floor(width * height * 0.018));
+
+  for (let start = 0; start < mask.length; start += 1) {
+    if (!mask[start] || visited[start]) continue;
+
+    const queue = [start];
+    visited[start] = 1;
+    let area = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+
+    for (let q = 0; q < queue.length; q += 1) {
+      const current = queue[q];
+      const x = current % width;
+      const y = Math.floor(current / width);
+
+      area += 1;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+
+      const neighbors = [
+        x > 0 ? current - 1 : -1,
+        x + 1 < width ? current + 1 : -1,
+        y > 0 ? current - width : -1,
+        y + 1 < height ? current + width : -1
+      ];
+
+      for (const next of neighbors) {
+        if (next >= 0 && mask[next] && !visited[next]) {
+          visited[next] = 1;
+          queue.push(next);
+        }
+      }
+    }
+
+    if (area >= minArea) {
+      components.push({ area, minX, minY, maxX, maxY });
+    }
+  }
+
+  components.sort((a, b) => b.area - a.area);
+  let pieces = components.slice(0, 2);
+
+  // Fallback cho ảnh set mà hai món chạm nhẹ vào nhau:
+  // tìm "thung lũng" foreground theo trục X rồi tách trái/phải.
+  if (pieces.length < 2) {
+    const columns = new Array<number>(width).fill(0);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (mask[y * width + x]) columns[x] += 1;
+      }
+    }
+
+    const left = Math.floor(width * 0.22);
+    const right = Math.floor(width * 0.78);
+    let splitX = -1;
+    let best = Number.POSITIVE_INFINITY;
+    for (let x = left; x <= right; x += 1) {
+      if (columns[x] < best) {
+        best = columns[x];
+        splitX = x;
+      }
+    }
+
+    function boxForRange(fromX: number, toX: number): GarmentBox | null {
+      let area = 0;
+      let minX = width;
+      let minY = height;
+      let maxX = 0;
+      let maxY = 0;
+      for (let y = 0; y < height; y += 1) {
+        for (let x = fromX; x <= toX; x += 1) {
+          if (!mask[y * width + x]) continue;
+          area += 1;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+      return area >= minArea
+        ? { area, minX, minY, maxX, maxY }
+        : null;
+    }
+
+    if (splitX > 0) {
+      const a = boxForRange(0, splitX - 1);
+      const b = boxForRange(splitX + 1, width - 1);
+      if (a && b) pieces = [a, b];
+    }
+  }
+
+  if (pieces.length < 2) {
+    bitmap.close();
+    return null;
+  }
+
+  const [a, b] = pieces;
+  const aspectA = (a.maxY - a.minY + 1) / (a.maxX - a.minX + 1);
+  const aspectB = (b.maxY - b.minY + 1) / (b.maxX - b.minX + 1);
+
+  // Quần thường dài/hẹp hơn áo. Nếu aspect gần nhau thì món kéo xuống thấp hơn
+  // được coi là bottom.
+  const aspectGap = Math.abs(aspectA - aspectB);
+  let bottomBox: GarmentBox;
+  let topBox: GarmentBox;
+
+  if (aspectGap >= 0.25) {
+    bottomBox = aspectA > aspectB ? a : b;
+    topBox = bottomBox === a ? b : a;
+  } else {
+    const centerA = (a.minY + a.maxY) / 2;
+    const centerB = (b.minY + b.maxY) / 2;
+    bottomBox = centerA > centerB ? a : b;
+    topBox = bottomBox === a ? b : a;
+  }
+
+  async function cropPiece(box: GarmentBox, name: string): Promise<File> {
+    const sourceX = box.minX / scale;
+    const sourceY = box.minY / scale;
+    const sourceW = (box.maxX - box.minX + 1) / scale;
+    const sourceH = (box.maxY - box.minY + 1) / scale;
+    const pad = Math.max(sourceW, sourceH) * 0.1;
+
+    const sx = Math.max(0, sourceX - pad);
+    const sy = Math.max(0, sourceY - pad);
+    const sw = Math.min(originalWidth - sx, sourceW + pad * 2);
+    const sh = Math.min(originalHeight - sy, sourceH + pad * 2);
+
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(sw));
+    out.height = Math.max(1, Math.round(sh));
+    const outCtx = out.getContext("2d");
+    if (!outCtx) throw new Error("Không thể tách ảnh set.");
+
+    outCtx.fillStyle = "#ffffff";
+    outCtx.fillRect(0, 0, out.width, out.height);
+    outCtx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, out.width, out.height);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      out.toBlob(
+        (value) =>
+          value ? resolve(value) : reject(new Error("Không thể tạo ảnh garment.")),
+        "image/jpeg",
+        0.92
+      );
+    });
+
+    return new File([blob], name, { type: "image/jpeg" });
+  }
+
+  try {
+    const [top, bottom] = await Promise.all([
+      cropPiece(topBox, "set-top.jpg"),
+      cropPiece(bottomBox, "set-bottom.jpg")
+    ]);
+    return { top, bottom };
+  } finally {
+    bitmap.close();
+  }
+}
+
 export default function Home() {
   const [person, setPerson] = useState<UploadState>({});
   const [garment, setGarment] = useState<UploadState>({});
@@ -246,15 +477,32 @@ export default function Home() {
       setStatusText("Giảm kích thước để phù hợp serverless free tier.");
       setResult(undefined);
 
-      const [personFile, garmentFile] = await Promise.all([
-        compressImage(person.file),
-        compressImage(garment.file)
-      ]);
-
+      const personFile = await compressImage(person.file);
       const form = new FormData();
       form.append("person", personFile);
-      form.append("garment", garmentFile);
       form.append("category", category);
+
+      if (category === "set") {
+        setStatusText("Đang tự tách set thành áo và quần riêng...");
+        const split = await splitSetGarment(garment.file);
+
+        if (!split) {
+          throw new Error(
+            "Không tách được set thành 2 món riêng. Hãy dùng ảnh catalog nền sáng, áo và quần tách nhau rõ hơn."
+          );
+        }
+
+        const [topGarment, bottomGarment] = await Promise.all([
+          compressImage(split.top),
+          compressImage(split.bottom)
+        ]);
+
+        form.append("topGarment", topGarment);
+        form.append("bottomGarment", bottomGarment);
+      } else {
+        const garmentFile = await compressImage(garment.file);
+        form.append("garment", garmentFile);
+      }
 
       const response = await fetch("/api/tryon", {
         method: "POST",
