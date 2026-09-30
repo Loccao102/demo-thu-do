@@ -274,8 +274,8 @@ export default function Home() {
       setStatus("done");
       setStatusText(
         category === "set"
-          ? "Hoàn tất · category đã được lưu là Set."
-          : "Hoàn tất trên Hugging Face ZeroGPU."
+          ? "Hoàn tất · Set được xử lý 2 pass: áo → quần."
+          : "Hoàn tất trên FASHN VTON ZeroGPU."
       );
     } catch (error) {
       setStatus("error");
@@ -295,7 +295,7 @@ export default function Home() {
           {providerReady === null
             ? "Đang kiểm tra API"
             : providerReady
-              ? "Hugging Face ZeroGPU sẵn sàng"
+              ? "FASHN VTON ZeroGPU sẵn sàng"
               : "Cloud provider chưa sẵn sàng"}
         </div>
       </header>
@@ -305,8 +305,7 @@ export default function Home() {
           <p className="eyebrow">CLOUD VIRTUAL TRY-ON</p>
           <h1>Thử quần áo bằng AI,<br />không cần GPU local.</h1>
           <p className="subtitle">
-            Demo cloud-only: ảnh được gửi qua serverless backend tới OOTDiffusion
-            chạy trên Hugging Face ZeroGPU. Không cần nạp API credits.
+            Demo cloud-only: ảnh được gửi qua serverless backend tới FASHN VTON v1.5 chạy trên Hugging Face ZeroGPU. Không cần nạp API credits.
           </p>
         </div>
         <div className="trialNote">
@@ -409,7 +408,7 @@ export default function Home() {
 
       <footer>
         <span>CloudFit experiment</span>
-        <span>Next.js serverless · Hugging Face ZeroGPU · OOTDiffusion</span>
+        <span>Next.js serverless · Hugging Face ZeroGPU · FASHN VTON v1.5</span>
       </footer>
     </main>
   );
