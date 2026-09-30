@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { tryOnWithKolors } from "@/lib/huggingface-kolors";
+import {
+  tryOnWithOOTDiffusion,
+  TryOnCategory
+} from "@/lib/huggingface-ootdiffusion";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
+
+const allowedCategories = new Set<TryOnCategory>([
+  "upperbody",
+  "lowerbody",
+  "dress"
+]);
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
@@ -11,10 +20,20 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const person = formData.get("person");
     const garment = formData.get("garment");
+    const category = String(
+      formData.get("category") || "upperbody"
+    ) as TryOnCategory;
 
     if (!(person instanceof File) || !(garment instanceof File)) {
       return NextResponse.json(
         { error: "Cần đủ ảnh người và ảnh quần áo." },
+        { status: 400 }
+      );
+    }
+
+    if (!allowedCategories.has(category)) {
+      return NextResponse.json(
+        { error: "Loại trang phục không hợp lệ." },
         { status: 400 }
       );
     }
@@ -26,25 +45,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await tryOnWithKolors({ person, garment });
+    const result = await tryOnWithOOTDiffusion({
+      person,
+      garment,
+      category
+    });
 
     return NextResponse.json({
       status: "completed",
       outputUrl: result.outputUrl,
-      seedUsed: result.seedUsed,
-      info: result.info,
-      provider: "huggingface-kolors"
+      provider: "huggingface-ootdiffusion"
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Không thể thử đồ.";
-    return NextResponse.json(
-      {
-        error:
-          message.includes("Too many users")
-            ? "Hugging Face Space đang quá tải. Hãy thử lại sau một lúc."
-            : message
-      },
-      { status: 502 }
-    );
+    const message =
+      error instanceof Error ? error.message : "Không thể thử đồ.";
+
+    const normalized =
+      /quota|gpu|queue|too many|exceeded|rate/i.test(message)
+        ? "Hugging Face ZeroGPU đang hết quota hoặc quá tải. Hãy thử lại sau, hoặc cấu hình HF_TOKEN miễn phí để dùng quota tài khoản."
+        : message;
+
+    return NextResponse.json({ error: normalized }, { status: 502 });
   }
 }
