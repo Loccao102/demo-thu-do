@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  tryOnWithOOTDiffusion,
+  tryOnWithFashn,
   TryOnCategory
-} from "@/lib/huggingface-ootdiffusion";
+} from "@/lib/huggingface-fashn";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await tryOnWithOOTDiffusion({
+    const result = await tryOnWithFashn({
       person,
       garment,
       category
@@ -55,8 +55,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       status: "completed",
       outputUrl: result.outputUrl,
-      provider: "huggingface-ootdiffusion",
-      requestedCategory: category
+      provider: "huggingface-fashn-vton-1.5",
+      requestedCategory: category,
+      mode: result.mode,
+      intermediateUrl: result.intermediateUrl
     });
   } catch (error) {
     const message =
