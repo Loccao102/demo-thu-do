@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { submitTryOn, TryOnCategory } from "@/lib/snapedit";
+import { tryOnWithKolors } from "@/lib/huggingface-kolors";
 
 export const runtime = "nodejs";
-
-const allowedCategories = new Set<TryOnCategory>([
-  "upperbody",
-  "lowerbody",
-  "dress"
-]);
+export const maxDuration = 120;
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
@@ -16,17 +11,12 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const person = formData.get("person");
     const garment = formData.get("garment");
-    const category = String(formData.get("category") || "upperbody") as TryOnCategory;
 
     if (!(person instanceof File) || !(garment instanceof File)) {
       return NextResponse.json(
         { error: "Cần đủ ảnh người và ảnh quần áo." },
         { status: 400 }
       );
-    }
-
-    if (!allowedCategories.has(category)) {
-      return NextResponse.json({ error: "Loại trang phục không hợp lệ." }, { status: 400 });
     }
 
     if (person.size > MAX_FILE_BYTES || garment.size > MAX_FILE_BYTES) {
@@ -36,21 +26,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await submitTryOn({
-      person,
-      garment,
-      category
-    });
+    const result = await tryOnWithKolors({ person, garment });
 
     return NextResponse.json({
-      jobId: result.job_id,
-      status: result.status || "queued",
-      creditsUsed: result.credits_used,
-      etaSeconds: result.eta_seconds
+      status: "completed",
+      outputUrl: result.outputUrl,
+      seedUsed: result.seedUsed,
+      info: result.info,
+      provider: "huggingface-kolors"
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Không thể gửi yêu cầu thử đồ.";
-    const status = message.includes("SNAPEDIT_API_KEY") ? 503 : 502;
-    return NextResponse.json({ error: message }, { status });
+    const message = error instanceof Error ? error.message : "Không thể thử đồ.";
+    return NextResponse.json(
+      {
+        error:
+          message.includes("Too many users")
+            ? "Hugging Face Space đang quá tải. Hãy thử lại sau một lúc."
+            : message
+      },
+      { status: 502 }
+    );
   }
 }
