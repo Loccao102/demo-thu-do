@@ -2,11 +2,14 @@ import { Client, handle_file } from "@gradio/client";
 
 const SPACE = "levihsu/OOTDiffusion";
 
-export type TryOnCategory = "upperbody" | "lowerbody" | "dress";
+export type TryOnCategory = "upperbody" | "lowerbody" | "dress" | "set";
 
 function categoryLabel(category: TryOnCategory) {
   if (category === "upperbody") return "Upper-body";
   if (category === "lowerbody") return "Lower-body";
+  // OOTDiffusion không có category "set" riêng; giữ category set ở app/API
+  // và dùng full-body mode của model để xử lý ảnh bộ đồ.
+  if (category === "set") return "Dress";
   return "Dress";
 }
 
