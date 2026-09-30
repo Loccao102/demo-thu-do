@@ -98,3 +98,4 @@ vào Vercel Environment Variables rồi redeploy.
 Đây là public research/demo infrastructure, không phải managed production API. Nếu sau này cần website thương mại có SLA, tốc độ ổn định và concurrency cao thì nên chuyển provider trả phí hoặc tự host model.
 
 OOTDiffusion Space hiện dùng giấy phép non-commercial, vì vậy bản tích hợp này phù hợp cho học tập, đồ án và benchmark/demo; cần rà lại giấy phép trước khi dùng thương mại.
+<!-- redeploy-trigger: 2026-09-30 -->
