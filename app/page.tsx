@@ -111,15 +111,12 @@ export default function Home() {
       }
 
       if (data.status === "completed") {
-        const image = data.outputUrl ||
-          (data.resultBase64 ? "data:image/png;base64," + data.resultBase64 : undefined);
+        const image = data.outputUrl;
         if (!image) throw new Error("API hoàn tất nhưng không trả ảnh kết quả.");
         setResult(image);
         setStatus("done");
         setStatusText(
-          data.inferenceTimeMs
-            ? "Inference " + (data.inferenceTimeMs / 1000).toFixed(1) + " giây"
-            : "Ảnh đã được tạo trên cloud."
+          typeof data.progress === "number"\n            ? "Hoàn tất · " + Math.round(data.progress * 100) + "%\n"\n            : "Ảnh đã được tạo trên cloud."
         );
         return;
       }
@@ -189,7 +186,7 @@ export default function Home() {
           {providerReady === null
             ? "Đang kiểm tra API"
             : providerReady
-              ? "PixelAPI đã kết nối"
+              ? "SnapEdit đã kết nối"
               : "Chưa cấu hình API key"}
         </div>
       </header>
@@ -205,7 +202,7 @@ export default function Home() {
         </div>
         <div className="trialNote">
           <strong>Free-trial mode</strong>
-          <span>PixelAPI hiện cho trial REST API 24 giờ. Dùng để benchmark chất lượng trước khi chọn provider.</span>
+          <span>SnapEdit cấp free credits khi đăng ký và không yêu cầu thẻ. Demo đang dùng Normal mode để tiết kiệm credit.</span>
         </div>
       </section>
 
@@ -303,7 +300,7 @@ export default function Home() {
 
       <footer>
         <span>CloudFit experiment</span>
-        <span>Next.js serverless · PixelAPI VTON · no local GPU</span>
+        <span>Next.js serverless · SnapEdit VTON · no local GPU</span>
       </footer>
     </main>
   );
