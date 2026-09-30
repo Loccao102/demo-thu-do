@@ -117,8 +117,7 @@ export default function Home() {
         setStatus("done");
         setStatusText(
           typeof data.progress === "number"
-            ? "Hoàn tất · " + Math.round(data.progress * 100) + "%
-"
+            ? `Hoàn tất · ${Math.round(data.progress * 100)}%`
             : "Ảnh đã được tạo trên cloud."
         );
         return;
