@@ -3,37 +3,41 @@
 Demo thử quần áo bằng AI theo hướng **100% cloud**:
 
 - Frontend + serverless API: Next.js, phù hợp Vercel Hobby.
-- AI Virtual Try-On: PixelAPI.
+- AI Virtual Try-On: SnapEdit.
 - Không cần GPU local, Python server hay model chạy trên máy.
-- API key chỉ nằm ở server (`PIXELAPI_KEY`), không gửi xuống browser.
+- API key chỉ nằm ở server (`SNAPEDIT_API_KEY`), không gửi xuống browser.
 - Frontend tự nén ảnh để giảm payload trước khi đi qua serverless function.
 
-## Vì sao chọn PixelAPI cho bản thử nghiệm
+## Provider hiện tại: SnapEdit
 
-PixelAPI có endpoint Virtual Try-On nhận ảnh người + ảnh quần áo, hỗ trợ:
+PixelAPI đã tạm dừng cấp API key mới, nên repo chuyển provider mặc định sang SnapEdit.
 
-- `upperbody`: áo, jacket, hoodie...
-- `lowerbody`: quần, váy...
-- `dress`: đầm / full-body garment.
+SnapEdit Virtual Try-On nhận ảnh người + ảnh quần áo và hỗ trợ:
 
-Tại thời điểm dựng demo, tài khoản mới có trial credits và REST API free trong 24 giờ, không cần thẻ. Đây là **free trial để benchmark**, không phải free tier vĩnh viễn.
+- `upper`: áo, jacket, hoodie...
+- `lower`: quần, váy...
+- `full`: đầm / full-body garment.
+- Normal / HD / Ultra. Demo mặc định dùng Normal để tiết kiệm free credits.
+
+Theo tài liệu SnapEdit hiện tại, tài khoản mới nhận free credits và không cần thẻ để bắt đầu. Đây là **free tier/trial để benchmark**, quota có thể thay đổi theo chính sách của provider.
 
 ## Chạy local
 
-1. Tạo API key tại https://pixelapi.dev/app
-2. Copy file env:
+1. Đăng ký tại https://snapedit.app/dashboard
+2. Tạo API key trong Dashboard → API Keys.
+3. Copy file env:
 
 ~~~bash
 cp .env.example .env.local
 ~~~
 
-3. Điền:
+4. Điền:
 
 ~~~env
-PIXELAPI_KEY=your_key_here
+SNAPEDIT_API_KEY=sk-snap-...
 ~~~
 
-4. Cài và chạy:
+5. Cài và chạy:
 
 ~~~bash
 npm install
@@ -47,19 +51,20 @@ Mở http://localhost:3000
 Import repo này vào Vercel, sau đó thêm Environment Variable:
 
 ~~~text
-PIXELAPI_KEY = <API key từ PixelAPI>
+SNAPEDIT_API_KEY = sk-snap-...
 ~~~
 
-Deploy lại. Không đặt key vào biến `NEXT_PUBLIC_*`.
+Redeploy. Không đặt key vào biến `NEXT_PUBLIC_*`.
 
 ## Luồng xử lý
 
 1. Browser nhận hai file ảnh.
 2. Ảnh lớn được resize/compress trên client để phù hợp serverless free tier.
-3. `POST /api/tryon` nhận file và chuyển sang base64 ở server.
-4. Server gọi `POST https://api.pixelapi.dev/v1/virtual-tryon`.
-5. Frontend poll `GET /api/tryon/{jobId}`.
-6. Server poll provider và trả URL/base64 kết quả khi job hoàn tất.
+3. `POST /api/tryon` nhận file.
+4. Server gọi `POST https://api.snapedit.app/v1/images/try-on` với `model_image`, `cloth_image`, `cloth_type`.
+5. SnapEdit trả `task_id`.
+6. Frontend poll `GET /api/tryon/{jobId}`; backend gọi `GET /v1/images/try-on/tasks/{task_id}`.
+7. Khi task hoàn tất, server trả URL ảnh kết quả.
 
 ## Gợi ý ảnh để test
 
@@ -76,4 +81,4 @@ Deploy lại. Không đặt key vào biến `NEXT_PUBLIC_*`.
 
 ## Lưu ý
 
-Trial của cloud AI có quota/thời hạn. Mục tiêu repo này là tách UI khỏi provider để có thể thay PixelAPI bằng Perfect Corp, FASHN, Google VTO hoặc provider khác về sau mà không phải viết lại trải nghiệm upload/result.
+Free credits của cloud AI có quota và chính sách có thể thay đổi. Repo tách provider khỏi UI để có thể đổi sang Perfect Corp, FASHN, Google VTO hoặc provider khác mà không phải viết lại trải nghiệm upload/result.
