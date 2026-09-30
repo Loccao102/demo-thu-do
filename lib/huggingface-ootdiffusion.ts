@@ -50,9 +50,14 @@ export async function tryOnWithOOTDiffusion(input: {
   ]);
 
   const token = process.env.HF_TOKEN?.trim();
+  const hfToken =
+    token && token.startsWith("hf_")
+      ? (token as `hf_${string}`)
+      : undefined;
+
   const app = await Client.connect(
     SPACE,
-    token ? { token } : undefined
+    hfToken ? { token: hfToken } : undefined
   );
 
   const result = await app.predict("/process_dc", {
