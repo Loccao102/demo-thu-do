@@ -10,7 +10,8 @@ export const maxDuration = 300;
 const allowedCategories = new Set<TryOnCategory>([
   "upperbody",
   "lowerbody",
-  "dress"
+  "dress",
+  "set"
 ]);
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -54,7 +55,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       status: "completed",
       outputUrl: result.outputUrl,
-      provider: "huggingface-ootdiffusion"
+      provider: "huggingface-ootdiffusion",
+      requestedCategory: category
     });
   } catch (error) {
     const message =
