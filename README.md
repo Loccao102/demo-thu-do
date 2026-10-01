@@ -1,28 +1,43 @@
-# demo-thu-do — Free Cloud Virtual Try-On
+# demo-thu-do — Controlled Virtual Try-On Demo
 
-Demo thử quần áo bằng AI theo hướng **cloud-only, không cần nạp API credits**.
+Bản demo này ưu tiên **độ ổn định khi trình diễn** thay vì cố hỗ trợ mọi ảnh đầu vào.
 
-## Stack
+## Luồng demo
 
-- Next.js + serverless route.
-- Hugging Face public Space: `levihsu/OOTDiffusion`.
-- Hugging Face ZeroGPU xử lý inference trên cloud.
-- Không cần GPU local.
-- Không cần API key trả phí.
-- Hỗ trợ:
-  - áo / upper-body
-  - quần, váy / lower-body
-  - đầm / dress
+1. Chọn một ảnh người mẫu đã được kiểm chứng hoặc upload ảnh người thật.
+2. Nếu upload ảnh thật, frontend kiểm tra cơ bản:
+   - độ phân giải;
+   - portrait ratio;
+   - độ sáng.
+3. Chọn sản phẩm trong **Demo Safe Catalog**.
+4. Backend chỉ nhận `productId`, sau đó tự lấy metadata/asset đã chuẩn hóa.
+5. Gọi FASHN VTON v1.5 trên Hugging Face ZeroGPU.
+6. Hiển thị Before / After.
 
-## Free thực tế như thế nào?
+## Catalog Try-On
 
-Hugging Face ZeroGPU có quota GPU miễn phí theo ngày.
+Metadata nằm tại:
 
-- Không đăng nhập: có quota ZeroGPU dành cho unauthenticated users.
-- Tài khoản Hugging Face Free: có quota cao hơn và ưu tiên queue tốt hơn.
-- `HF_TOKEN` là **tùy chọn**, không bắt buộc để chạy bản demo.
+`lib/demo-catalog.ts`
 
-Không có cam kết SLA: public Space có thể phải xếp hàng hoặc tạm hết quota khi đông người.
+Mỗi sản phẩm có:
+
+- `tryOnEnabled`
+- category: `upperbody | lowerbody | dress | set`
+- đúng `photoType: model | flat-lay`
+- asset garment đã khóa sẵn.
+
+Set không còn được tách trong lúc khách bấm Try-On. Set demo dùng **top asset + bottom asset đã tách sẵn**, sau đó chạy:
+
+`person -> tops -> intermediate -> bottoms -> final`
+
+## Provider
+
+- FASHN VTON v1.5
+- Hugging Face public ZeroGPU Space
+- `HF_TOKEN` là tùy chọn.
+- Single garment dùng 40 sampling steps.
+- Set dùng 30 + 30 steps để cân bằng chất lượng và thời gian.
 
 ## Chạy local
 
@@ -31,71 +46,29 @@ npm install
 npm run dev
 ~~~
 
-Mở http://localhost:3000.
+Không cần env để thử public quota.
 
-Không cần file env cho lần test đầu.
-
-### Tùy chọn: dùng quota tài khoản Hugging Face Free
-
-Tạo Hugging Face token quyền Read, sau đó:
-
-~~~bash
-cp .env.example .env.local
-~~~
+Có thể thêm:
 
 ~~~env
 HF_TOKEN=hf_xxx
 ~~~
 
-Không commit token lên GitHub.
+để dùng quota của tài khoản Hugging Face.
 
 ## Deploy Vercel
 
-Import repo vào Vercel và deploy bình thường.
+Import repository vào Vercel và deploy như Next.js bình thường.
 
-Không cần Environment Variable để chạy ở chế độ unauthenticated.
+Route Try-On có:
 
-Nếu muốn dùng quota của tài khoản Hugging Face Free, thêm:
-
-~~~text
-HF_TOKEN = hf_xxx
+~~~ts
+export const maxDuration = 300;
 ~~~
 
-vào Vercel Environment Variables rồi redeploy.
+## Lưu ý demo
 
-## Luồng xử lý
-
-1. Người dùng upload ảnh người và ảnh trang phục.
-2. Browser resize/compress ảnh lớn.
-3. `POST /api/tryon` gửi hai ảnh tới serverless route.
-4. Backend dùng Gradio JS Client gọi public Space `levihsu/OOTDiffusion`.
-5. Endpoint `/process_dc` chạy Virtual Try-On trên ZeroGPU.
-6. Kết quả được trả về và hiển thị ngay trên UI.
-
-## Cấu hình OOTDiffusion dùng trong demo
-
-- 1 ảnh kết quả.
-- 20 inference steps để tiết kiệm thời gian GPU.
-- Guidance scale 2.
-- Random seed.
-- Category được map sang Upper-body / Lower-body / Dress.
-
-## Ảnh test tốt
-
-Ảnh người:
-- chính diện hoặc lệch nhẹ;
-- thấy rõ vùng quần áo cần thay;
-- ít vật thể che người.
-
-Ảnh trang phục:
-- một sản phẩm duy nhất;
-- flat-lay hoặc catalog;
-- nền đơn giản;
-- chọn đúng loại áo/quần/đầm trong UI.
-
-## Giới hạn
-
-Đây là public research/demo infrastructure, không phải managed production API. Nếu sau này cần website thương mại có SLA, tốc độ ổn định và concurrency cao thì nên chuyển provider trả phí hoặc tự host model.
-
-OOTDiffusion Space hiện dùng giấy phép non-commercial, vì vậy bản tích hợp này phù hợp cho học tập, đồ án và benchmark/demo; cần rà lại giấy phép trước khi dùng thương mại.
-<!-- redeploy-trigger: 2026-09-30 -->
+- Nên dùng ảnh mẫu để live demo ổn định nhất.
+- Upload thật vẫn hỗ trợ nhưng nên là ảnh 1 người, toàn thân, đủ sáng.
+- Chức năng này là **visual try-on**, không đại diện cho độ vừa size thực tế.
+- Public ZeroGPU có thể queue/rate-limit; production thực tế nên dùng managed API hoặc self-host.
