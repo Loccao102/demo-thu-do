@@ -74,3 +74,5 @@ export const maxDuration = 300;
 - Public ZeroGPU có thể queue/rate-limit; production thực tế nên dùng managed API hoặc self-host.
 
 <!-- vercel-redeploy: 2026-10-01 guarded-upload-v2 -->
+
+<!-- vercel-redeploy: latest-main-after-rate-limit -->
