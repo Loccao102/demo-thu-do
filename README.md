@@ -72,3 +72,5 @@ export const maxDuration = 300;
 - Upload thật vẫn hỗ trợ nhưng nên là ảnh 1 người, toàn thân, đủ sáng.
 - Chức năng này là **visual try-on**, không đại diện cho độ vừa size thực tế.
 - Public ZeroGPU có thể queue/rate-limit; production thực tế nên dùng managed API hoặc self-host.
+
+<!-- vercel-redeploy: 2026-10-01 guarded-upload-v2 -->
