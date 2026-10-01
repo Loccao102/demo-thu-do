@@ -213,7 +213,7 @@ export async function POST(request: NextRequest) {
       intermediateUrl: result.intermediateUrl,
       provider: "huggingface-fashn-vton-1.5",
       category: result.category,
-      photoType: result.photoType,
+      photoType: "photoType" in result ? result.photoType : undefined,
       mode: result.mode,
       productId: "productId" in result ? result.productId : undefined
     });
