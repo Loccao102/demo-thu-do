@@ -1,8 +1,7 @@
 import { Client, handle_file } from "@gradio/client";
+import type { GarmentPhotoType, TryOnCategory } from "@/lib/demo-catalog";
 
 const SPACE = "fashn-ai/fashn-vton-1.5";
-
-export type TryOnCategory = "upperbody" | "lowerbody" | "dress" | "set";
 
 type FashnCategory = "tops" | "bottoms" | "one-pieces";
 
@@ -49,6 +48,8 @@ async function runFashn(input: {
   person: Blob;
   garment: Blob;
   category: FashnCategory;
+  photoType: GarmentPhotoType;
+  steps: number;
 }) {
   const app = await Client.connect(SPACE, hfClientOptions());
 
@@ -56,8 +57,8 @@ async function runFashn(input: {
     handle_file(input.person),
     handle_file(input.garment),
     input.category,
-    "flat-lay",
-    30,
+    input.photoType,
+    input.steps,
     1.5,
     42,
     true
@@ -85,16 +86,19 @@ async function urlToBlob(url: string) {
 
 export async function tryOnWithFashn(input: {
   person: File;
-  garment?: File;
-  topGarment?: File;
-  bottomGarment?: File;
   category: TryOnCategory;
+  garment?: File;
+  garmentPhotoType?: GarmentPhotoType;
+  topGarment?: File;
+  topPhotoType?: GarmentPhotoType;
+  bottomGarment?: File;
+  bottomPhotoType?: GarmentPhotoType;
 }) {
   const personBlob = await asBlob(input.person);
 
   if (input.category === "set") {
     if (!input.topGarment || !input.bottomGarment) {
-      throw new Error("Set cần topGarment và bottomGarment riêng.");
+      throw new Error("Set demo cần top và bottom đã chuẩn hóa riêng.");
     }
 
     const [topBlob, bottomBlob] = await Promise.all([
@@ -105,7 +109,9 @@ export async function tryOnWithFashn(input: {
     const topUrl = await runFashn({
       person: personBlob,
       garment: topBlob,
-      category: "tops"
+      category: "tops",
+      photoType: input.topPhotoType || "flat-lay",
+      steps: 30
     });
 
     const personWithTop = await urlToBlob(topUrl);
@@ -113,22 +119,23 @@ export async function tryOnWithFashn(input: {
     const finalUrl = await runFashn({
       person: personWithTop,
       garment: bottomBlob,
-      category: "bottoms"
+      category: "bottoms",
+      photoType: input.bottomPhotoType || "flat-lay",
+      steps: 30
     });
 
     return {
       outputUrl: finalUrl,
       intermediateUrl: topUrl,
-      mode: "set-two-pass-split" as const
+      mode: "set-two-pass-preprocessed" as const
     };
   }
 
   if (!input.garment) {
-    throw new Error("Thiếu ảnh garment.");
+    throw new Error("Thiếu garment đã chuẩn hóa.");
   }
 
   const garmentBlob = await asBlob(input.garment);
-
   const category: FashnCategory =
     input.category === "upperbody"
       ? "tops"
@@ -139,11 +146,13 @@ export async function tryOnWithFashn(input: {
   const outputUrl = await runFashn({
     person: personBlob,
     garment: garmentBlob,
-    category
+    category,
+    photoType: input.garmentPhotoType || "flat-lay",
+    steps: 40
   });
 
   return {
     outputUrl,
-    mode: "single-pass" as const
+    mode: "single-pass-demo-quality" as const
   };
 }
