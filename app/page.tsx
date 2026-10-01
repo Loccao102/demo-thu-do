@@ -1,25 +1,35 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  useEffect,
+  useMemo,
+  useState
+} from "react";
+import {
+  demoPeople,
+  demoProducts,
+  type DemoProduct
+} from "@/lib/demo-catalog";
 
-type Category = "upperbody" | "lowerbody" | "dress" | "set";
 type UploadState = {
   file?: File;
   preview?: string;
+  valid?: boolean;
+  message?: string;
 };
 
-const categoryLabels: Record<Category, string> = {
+const categoryLabel: Record<DemoProduct["category"], string> = {
   upperbody: "Áo / khoác",
   lowerbody: "Quần / váy",
-  dress: "Đầm / full-body",
-  set: "Bộ đồ / Set"
+  dress: "One-piece",
+  set: "Set 2 món"
 };
 
 async function compressImage(file: File): Promise<File> {
-  if (file.size <= 1.35 * 1024 * 1024) return file;
-
   const bitmap = await createImageBitmap(file);
-  const maxDimension = 1400;
+  const maxDimension = 1600;
   const ratio = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * ratio));
   const height = Math.max(1, Math.round(bitmap.height * ratio));
@@ -28,7 +38,10 @@ async function compressImage(file: File): Promise<File> {
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Trình duyệt không hỗ trợ xử lý ảnh.");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("Trình duyệt không hỗ trợ xử lý ảnh.");
+  }
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
@@ -37,471 +50,188 @@ async function compressImage(file: File): Promise<File> {
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
-      (value) => value ? resolve(value) : reject(new Error("Không thể nén ảnh.")),
+      (value) =>
+        value ? resolve(value) : reject(new Error("Không thể tối ưu ảnh.")),
       "image/jpeg",
-      0.84
+      0.9
     );
   });
 
-  return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", {
-    type: "image/jpeg"
-  });
+  return new File([blob], "person-demo.jpg", { type: "image/jpeg" });
 }
 
-async function detectGarmentCategory(file: File): Promise<Category | null> {
-  const normalizedName = file.name
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-
-  const setKeywords = [
-    "set",
-    "bo-do",
-    "bo_",
-    "combo",
-    "pijama",
-    "pyjama",
-    "pajama",
-    "sleepwear",
-    "matching",
-    "co-ord",
-    "coord"
-  ];
-
-  if (setKeywords.some((keyword) => normalizedName.includes(keyword))) {
-    return "set";
-  }
-
-  // Heuristic cho ảnh catalog nền sáng: nếu có >= 2 vùng trang phục lớn tách rời
-  // (ví dụ áo + quần) thì tự nhận là set. Không gọi thêm API/AI nên vẫn free.
-  try {
-    const bitmap = await createImageBitmap(file);
-    const target = 112;
-    const scale = Math.min(1, target / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(24, Math.round(bitmap.width * scale));
-    const height = Math.max(24, Math.round(bitmap.height * scale));
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) {
-      bitmap.close();
-      return null;
-    }
-
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    bitmap.close();
-
-    const image = ctx.getImageData(0, 0, width, height);
-    const pixels = image.data;
-
-    const cornerIndexes = [
-      0,
-      (width - 1) * 4,
-      ((height - 1) * width) * 4,
-      ((height - 1) * width + width - 1) * 4
-    ];
-
-    const bg = [0, 1, 2].map((channel) =>
-      cornerIndexes.reduce((sum, index) => sum + pixels[index + channel], 0) /
-      cornerIndexes.length
-    );
-
-    const mask = new Uint8Array(width * height);
-    for (let i = 0; i < width * height; i += 1) {
-      const p = i * 4;
-      const dr = pixels[p] - bg[0];
-      const dg = pixels[p + 1] - bg[1];
-      const db = pixels[p + 2] - bg[2];
-      const distance = Math.sqrt(dr * dr + dg * dg + db * db);
-      const alpha = pixels[p + 3];
-      if (alpha > 40 && distance > 52) mask[i] = 1;
-    }
-
-    const visited = new Uint8Array(mask.length);
-    const minArea = Math.max(28, Math.floor(width * height * 0.035));
-    let largeComponents = 0;
-
-    for (let start = 0; start < mask.length; start += 1) {
-      if (!mask[start] || visited[start]) continue;
-
-      const queue = [start];
-      visited[start] = 1;
-      let area = 0;
-
-      for (let q = 0; q < queue.length; q += 1) {
-        const current = queue[q];
-        area += 1;
-        const x = current % width;
-        const y = Math.floor(current / width);
-
-        const neighbors = [
-          x > 0 ? current - 1 : -1,
-          x + 1 < width ? current + 1 : -1,
-          y > 0 ? current - width : -1,
-          y + 1 < height ? current + width : -1
-        ];
-
-        for (const next of neighbors) {
-          if (next >= 0 && mask[next] && !visited[next]) {
-            visited[next] = 1;
-            queue.push(next);
-          }
-        }
-      }
-
-      if (area >= minArea) {
-        largeComponents += 1;
-        if (largeComponents >= 2) return "set";
-      }
-    }
-  } catch {
-    // Không chặn upload nếu browser không hỗ trợ hoặc ảnh khó phân tích.
-  }
-
-  return null;
-}
-
-
-type GarmentBox = {
-  area: number;
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-};
-
-async function splitSetGarment(
-  file: File
-): Promise<{ top: File; bottom: File } | null> {
+async function validatePersonImage(file: File) {
   const bitmap = await createImageBitmap(file);
-  const originalWidth = bitmap.width;
-  const originalHeight = bitmap.height;
+  const width = bitmap.width;
+  const height = bitmap.height;
+  const ratio = height / width;
 
-  const target = 240;
-  const scale = Math.min(1, target / Math.max(originalWidth, originalHeight));
-  const width = Math.max(48, Math.round(originalWidth * scale));
-  const height = Math.max(48, Math.round(originalHeight * scale));
+  const sampleCanvas = document.createElement("canvas");
+  sampleCanvas.width = 64;
+  sampleCanvas.height = 64;
+  const ctx = sampleCanvas.getContext("2d", { willReadFrequently: true });
 
-  const analysisCanvas = document.createElement("canvas");
-  analysisCanvas.width = width;
-  analysisCanvas.height = height;
-  const ctx = analysisCanvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) {
-    bitmap.close();
-    return null;
-  }
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(bitmap, 0, 0, width, height);
-
-  const image = ctx.getImageData(0, 0, width, height);
-  const pixels = image.data;
-  const samplePoints = [
-    0,
-    Math.floor(width / 2) * 4,
-    (width - 1) * 4,
-    (Math.floor(height / 2) * width) * 4,
-    (Math.floor(height / 2) * width + width - 1) * 4,
-    ((height - 1) * width) * 4,
-    ((height - 1) * width + Math.floor(width / 2)) * 4,
-    ((height - 1) * width + width - 1) * 4
-  ];
-
-  const bg = [0, 1, 2].map(
-    (channel) =>
-      samplePoints.reduce((sum, index) => sum + pixels[index + channel], 0) /
-      samplePoints.length
-  );
-
-  const mask = new Uint8Array(width * height);
-  for (let i = 0; i < width * height; i += 1) {
-    const p = i * 4;
-    const dr = pixels[p] - bg[0];
-    const dg = pixels[p + 1] - bg[1];
-    const db = pixels[p + 2] - bg[2];
-    const distance = Math.sqrt(dr * dr + dg * dg + db * db);
-    if (pixels[p + 3] > 40 && distance > 44) mask[i] = 1;
-  }
-
-  const visited = new Uint8Array(mask.length);
-  const components: GarmentBox[] = [];
-  const minArea = Math.max(60, Math.floor(width * height * 0.018));
-
-  for (let start = 0; start < mask.length; start += 1) {
-    if (!mask[start] || visited[start]) continue;
-
-    const queue = [start];
-    visited[start] = 1;
-    let area = 0;
-    let minX = width;
-    let minY = height;
-    let maxX = 0;
-    let maxY = 0;
-
-    for (let q = 0; q < queue.length; q += 1) {
-      const current = queue[q];
-      const x = current % width;
-      const y = Math.floor(current / width);
-
-      area += 1;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-
-      const neighbors = [
-        x > 0 ? current - 1 : -1,
-        x + 1 < width ? current + 1 : -1,
-        y > 0 ? current - width : -1,
-        y + 1 < height ? current + width : -1
-      ];
-
-      for (const next of neighbors) {
-        if (next >= 0 && mask[next] && !visited[next]) {
-          visited[next] = 1;
-          queue.push(next);
-        }
-      }
+  let brightness = 128;
+  if (ctx) {
+    ctx.drawImage(bitmap, 0, 0, 64, 64);
+    const pixels = ctx.getImageData(0, 0, 64, 64).data;
+    let total = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      total +=
+        pixels[i] * 0.2126 +
+        pixels[i + 1] * 0.7152 +
+        pixels[i + 2] * 0.0722;
     }
+    brightness = total / (pixels.length / 4);
+  }
+  bitmap.close();
 
-    if (area >= minArea) {
-      components.push({ area, minX, minY, maxX, maxY });
-    }
+  const issues: string[] = [];
+  if (Math.max(width, height) < 720) {
+    issues.push("độ phân giải hơi thấp");
+  }
+  if (ratio < 1.05 || ratio > 2.25) {
+    issues.push("ảnh nên là portrait/toàn thân");
+  }
+  if (brightness < 42) {
+    issues.push("ảnh quá tối");
+  }
+  if (brightness > 235) {
+    issues.push("ảnh bị cháy sáng");
   }
 
-  components.sort((a, b) => b.area - a.area);
-  let pieces = components.slice(0, 2);
-
-  // Fallback cho ảnh set mà hai món chạm nhẹ vào nhau:
-  // tìm "thung lũng" foreground theo trục X rồi tách trái/phải.
-  if (pieces.length < 2) {
-    const columns = new Array<number>(width).fill(0);
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        if (mask[y * width + x]) columns[x] += 1;
-      }
-    }
-
-    const left = Math.floor(width * 0.22);
-    const right = Math.floor(width * 0.78);
-    let splitX = -1;
-    let best = Number.POSITIVE_INFINITY;
-    for (let x = left; x <= right; x += 1) {
-      if (columns[x] < best) {
-        best = columns[x];
-        splitX = x;
-      }
-    }
-
-    function boxForRange(fromX: number, toX: number): GarmentBox | null {
-      let area = 0;
-      let minX = width;
-      let minY = height;
-      let maxX = 0;
-      let maxY = 0;
-      for (let y = 0; y < height; y += 1) {
-        for (let x = fromX; x <= toX; x += 1) {
-          if (!mask[y * width + x]) continue;
-          area += 1;
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
-        }
-      }
-      return area >= minArea
-        ? { area, minX, minY, maxX, maxY }
-        : null;
-    }
-
-    if (splitX > 0) {
-      const a = boxForRange(0, splitX - 1);
-      const b = boxForRange(splitX + 1, width - 1);
-      if (a && b) pieces = [a, b];
-    }
-  }
-
-  if (pieces.length < 2) {
-    bitmap.close();
-    return null;
-  }
-
-  const [a, b] = pieces;
-  const aspectA = (a.maxY - a.minY + 1) / (a.maxX - a.minX + 1);
-  const aspectB = (b.maxY - b.minY + 1) / (b.maxX - b.minX + 1);
-
-  // Quần thường dài/hẹp hơn áo. Nếu aspect gần nhau thì món kéo xuống thấp hơn
-  // được coi là bottom.
-  const aspectGap = Math.abs(aspectA - aspectB);
-  let bottomBox: GarmentBox;
-  let topBox: GarmentBox;
-
-  if (aspectGap >= 0.25) {
-    bottomBox = aspectA > aspectB ? a : b;
-    topBox = bottomBox === a ? b : a;
-  } else {
-    const centerA = (a.minY + a.maxY) / 2;
-    const centerB = (b.minY + b.maxY) / 2;
-    bottomBox = centerA > centerB ? a : b;
-    topBox = bottomBox === a ? b : a;
-  }
-
-  async function cropPiece(box: GarmentBox, name: string): Promise<File> {
-    const sourceX = box.minX / scale;
-    const sourceY = box.minY / scale;
-    const sourceW = (box.maxX - box.minX + 1) / scale;
-    const sourceH = (box.maxY - box.minY + 1) / scale;
-    const pad = Math.max(sourceW, sourceH) * 0.1;
-
-    const sx = Math.max(0, sourceX - pad);
-    const sy = Math.max(0, sourceY - pad);
-    const sw = Math.min(originalWidth - sx, sourceW + pad * 2);
-    const sh = Math.min(originalHeight - sy, sourceH + pad * 2);
-
-    const out = document.createElement("canvas");
-    out.width = Math.max(1, Math.round(sw));
-    out.height = Math.max(1, Math.round(sh));
-    const outCtx = out.getContext("2d");
-    if (!outCtx) throw new Error("Không thể tách ảnh set.");
-
-    outCtx.fillStyle = "#ffffff";
-    outCtx.fillRect(0, 0, out.width, out.height);
-    outCtx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, out.width, out.height);
-
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      out.toBlob(
-        (value) =>
-          value ? resolve(value) : reject(new Error("Không thể tạo ảnh garment.")),
-        "image/jpeg",
-        0.92
-      );
-    });
-
-    return new File([blob], name, { type: "image/jpeg" });
-  }
-
-  try {
-    const [top, bottom] = await Promise.all([
-      cropPiece(topBox, "set-top.jpg"),
-      cropPiece(bottomBox, "set-bottom.jpg")
-    ]);
-    return { top, bottom };
-  } finally {
-    bitmap.close();
-  }
+  return {
+    ok: issues.length === 0,
+    message:
+      issues.length === 0
+        ? `Đạt kiểm tra cơ bản · ${width}×${height} · ưu tiên ảnh 1 người, thấy rõ toàn thân`
+        : `Chưa phù hợp cho demo: ${issues.join(", ")}.`
+  };
 }
 
 export default function Home() {
-  const [person, setPerson] = useState<UploadState>({});
-  const [garment, setGarment] = useState<UploadState>({});
-  const [category, setCategory] = useState<Category>("upperbody");
-  const [status, setStatus] = useState<"idle" | "compressing" | "queued" | "processing" | "done" | "error">("idle");
-  const [statusText, setStatusText] = useState("");
+  const [selectedPersonId, setSelectedPersonId] = useState(demoPeople[0].id);
+  const [customPerson, setCustomPerson] = useState<UploadState>({});
+  const [selectedProductId, setSelectedProductId] = useState(demoProducts[0].id);
+  const [status, setStatus] = useState<
+    "idle" | "validating" | "processing" | "done" | "error"
+  >("idle");
+  const [statusText, setStatusText] = useState(
+    "Chọn người mẫu và một sản phẩm đã chuẩn hóa."
+  );
   const [result, setResult] = useState<string>();
+  const [intermediate, setIntermediate] = useState<string>();
   const [providerReady, setProviderReady] = useState<boolean | null>(null);
+
+  const selectedProduct = useMemo(
+    () =>
+      demoProducts.find((product) => product.id === selectedProductId) ||
+      demoProducts[0],
+    [selectedProductId]
+  );
+
+  const selectedPerson = useMemo(
+    () =>
+      demoPeople.find((person) => person.id === selectedPersonId) ||
+      demoPeople[0],
+    [selectedPersonId]
+  );
+
+  const personPreview = customPerson.preview || selectedPerson.url;
+  const canSubmit =
+    Boolean(selectedProduct) &&
+    !["validating", "processing"].includes(status) &&
+    (!customPerson.file || customPerson.valid === true);
 
   useEffect(() => {
     fetch("/api/health")
-      .then((r) => r.json())
+      .then((response) => response.json())
       .then((data) => setProviderReady(Boolean(data.configured)))
       .catch(() => setProviderReady(false));
   }, []);
 
   useEffect(() => {
     return () => {
-      if (person.preview) URL.revokeObjectURL(person.preview);
-      if (garment.preview) URL.revokeObjectURL(garment.preview);
+      if (customPerson.preview) {
+        URL.revokeObjectURL(customPerson.preview);
+      }
     };
-  }, [person.preview, garment.preview]);
+  }, [customPerson.preview]);
 
-  const canSubmit = Boolean(person.file && garment.file) &&
-    !["compressing", "queued", "processing"].includes(status);
-
-  const statusLabel = useMemo(() => {
-    if (status === "compressing") return "Đang tối ưu ảnh...";
-    if (status === "queued") return "Đã vào hàng đợi AI...";
-    if (status === "processing") return "AI đang thay đồ...";
-    if (status === "done") return "Hoàn tất";
-    if (status === "error") return "Có lỗi";
-    return "Sẵn sàng";
-  }, [status]);
-
-  function pickFile(
-    setter: React.Dispatch<React.SetStateAction<UploadState>>
-  ) {
-    return (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
-      setter((old) => {
-        if (old.preview) URL.revokeObjectURL(old.preview);
-        return { file, preview: URL.createObjectURL(file) };
-      });
-      setResult(undefined);
-      setStatus("idle");
-      setStatusText("");
-    };
+  function chooseSamplePerson(personId: string) {
+    if (customPerson.preview) URL.revokeObjectURL(customPerson.preview);
+    setCustomPerson({});
+    setSelectedPersonId(personId);
+    setResult(undefined);
+    setIntermediate(undefined);
+    setStatus("idle");
+    setStatusText("Ảnh mẫu đã được kiểm chứng cho demo.");
   }
 
-  function pickGarmentFile(event: ChangeEvent<HTMLInputElement>) {
+  async function pickCustomPerson(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setGarment((old) => {
-      if (old.preview) URL.revokeObjectURL(old.preview);
-      return { file, preview: URL.createObjectURL(file) };
-    });
-
+    if (customPerson.preview) URL.revokeObjectURL(customPerson.preview);
+    const preview = URL.createObjectURL(file);
+    setCustomPerson({ file, preview });
     setResult(undefined);
-    setStatus("idle");
-    setStatusText("Đang tự nhận diện loại trang phục...");
+    setIntermediate(undefined);
+    setStatus("validating");
+    setStatusText("Đang kiểm tra chất lượng ảnh người...");
 
-    void detectGarmentCategory(file).then((detected) => {
-      if (detected === "set") {
-        setCategory("set");
-        setStatusText("Đã nhận diện ảnh có nhiều món: tự chuyển sang Bộ đồ / Set.");
-      } else {
-        setStatusText("");
-      }
-    });
+    try {
+      const validation = await validatePersonImage(file);
+      setCustomPerson({
+        file,
+        preview,
+        valid: validation.ok,
+        message: validation.message
+      });
+      setStatus(validation.ok ? "idle" : "error");
+      setStatusText(validation.message);
+    } catch {
+      setCustomPerson({
+        file,
+        preview,
+        valid: false,
+        message: "Không đọc được ảnh. Hãy chọn JPG/PNG/WebP khác."
+      });
+      setStatus("error");
+      setStatusText("Không đọc được ảnh.");
+    }
+  }
+
+  function chooseProduct(productId: string) {
+    setSelectedProductId(productId);
+    setResult(undefined);
+    setIntermediate(undefined);
+    setStatus("idle");
+    setStatusText("Sản phẩm đã có metadata Try-On chuẩn hóa sẵn.");
   }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!person.file || !garment.file) return;
+    if (!canSubmit) return;
 
     try {
-      setStatus("compressing");
-      setStatusText("Giảm kích thước để phù hợp serverless free tier.");
+      setStatus("processing");
+      setStatusText(
+        selectedProduct.category === "set"
+          ? "Đang thử set theo 2 pass: top → bottom..."
+          : "Đang tạo ảnh thử đồ ở chế độ demo-quality..."
+      );
       setResult(undefined);
+      setIntermediate(undefined);
 
-      const personFile = await compressImage(person.file);
       const form = new FormData();
-      form.append("person", personFile);
-      form.append("category", category);
+      form.append("productId", selectedProduct.id);
 
-      if (category === "set") {
-        setStatusText("Đang tự tách set thành áo và quần riêng...");
-        const split = await splitSetGarment(garment.file);
-
-        if (!split) {
-          throw new Error(
-            "Không tách được set thành 2 món riêng. Hãy dùng ảnh catalog nền sáng, áo và quần tách nhau rõ hơn."
-          );
-        }
-
-        const [topGarment, bottomGarment] = await Promise.all([
-          compressImage(split.top),
-          compressImage(split.bottom)
-        ]);
-
-        form.append("topGarment", topGarment);
-        form.append("bottomGarment", bottomGarment);
+      if (customPerson.file) {
+        const personFile = await compressImage(customPerson.file);
+        form.append("person", personFile);
       } else {
-        const garmentFile = await compressImage(garment.file);
-        form.append("garment", garmentFile);
+        form.append("personId", selectedPerson.id);
       }
 
       const response = await fetch("/api/tryon", {
@@ -511,152 +241,232 @@ export default function Home() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Không thể bắt đầu thử đồ.");
+        throw new Error(data.error || "Không thể tạo ảnh thử đồ.");
       }
 
       if (!data.outputUrl) {
-        throw new Error("Cloud AI hoàn tất nhưng không trả ảnh kết quả.");
+        throw new Error("AI hoàn tất nhưng không trả ảnh kết quả.");
       }
 
       setResult(data.outputUrl);
+      setIntermediate(data.intermediateUrl);
       setStatus("done");
       setStatusText(
-        category === "set"
-          ? "Hoàn tất · Set được xử lý 2 pass: áo → quần."
-          : "Hoàn tất trên FASHN VTON ZeroGPU."
+        data.category === "set"
+          ? "Hoàn tất · set dùng 2 asset đã tách sẵn và 2-pass."
+          : `Hoàn tất · ${categoryLabel[selectedProduct.category]} · metadata đã khóa trước khi inference.`
       );
     } catch (error) {
       setStatus("error");
-      setStatusText(error instanceof Error ? error.message : "Đã xảy ra lỗi.");
+      setStatusText(
+        error instanceof Error ? error.message : "Đã xảy ra lỗi."
+      );
     }
   }
 
   return (
-    <main className="shell">
-      <header className="topbar">
+    <main className="demoShell">
+      <header className="demoTopbar">
         <div className="brand">
           <span className="brandMark">CF</span>
-          <span>CloudFit Lab</span>
+          <div>
+            <strong>CloudFit Try-On</strong>
+            <small>Controlled demo pipeline</small>
+          </div>
         </div>
+
         <div className={"provider " + (providerReady ? "ready" : "")}>
           <span className="dot" />
           {providerReady === null
-            ? "Đang kiểm tra API"
+            ? "Đang kiểm tra"
             : providerReady
               ? "FASHN VTON ZeroGPU sẵn sàng"
-              : "Cloud provider chưa sẵn sàng"}
+              : "Provider chưa sẵn sàng"}
         </div>
       </header>
 
-      <section className="hero">
+      <section className="demoHero">
         <div>
-          <p className="eyebrow">CLOUD VIRTUAL TRY-ON</p>
-          <h1>Thử quần áo bằng AI,<br />không cần GPU local.</h1>
+          <p className="eyebrow">DEMO-READY VIRTUAL TRY-ON</p>
+          <h1>Ít case hơn.<br />Kết quả ổn định hơn.</h1>
           <p className="subtitle">
-            Demo cloud-only: ảnh được gửi qua serverless backend tới FASHN VTON v1.5 chạy trên Hugging Face ZeroGPU. Không cần nạp API credits.
+            Demo chỉ chạy với catalog đã chuẩn hóa metadata, đúng category và
+            đúng photo type. Set được tách asset trước, không đoán lại lúc khách bấm Try-On.
           </p>
         </div>
-        <div className="trialNote">
-          <strong>FREE CLOUD MODE</strong>
-          <span>Không cần API key để chạy thử. HF_TOKEN miễn phí chỉ là tùy chọn để có quota ZeroGPU theo tài khoản và ưu tiên queue tốt hơn.</span>
+        <div className="demoRule">
+          <strong>Nguyên tắc demo</strong>
+          <span>Ảnh mẫu + sản phẩm chuẩn hóa = luồng an toàn nhất.</span>
+          <span>Upload ảnh thật vẫn hỗ trợ, nhưng phải vượt kiểm tra cơ bản.</span>
         </div>
       </section>
 
-      <form className="workspace" onSubmit={onSubmit}>
-        <section className="panel inputPanel">
-          <div className="panelHead">
+      <form onSubmit={onSubmit}>
+        <section className="demoStep">
+          <div className="stepHeading">
             <div>
               <span className="step">01</span>
-              <h2>Ảnh đầu vào</h2>
+              <div>
+                <h2>Chọn người thử</h2>
+                <p>Ảnh mẫu được ưu tiên để live demo không phụ thuộc chất lượng upload.</p>
+              </div>
             </div>
-            <span className="hint">JPG · PNG · WebP</span>
-          </div>
-
-          <div className="uploadGrid">
-            <label className={"dropzone " + (person.preview ? "hasImage" : "")}>
-              {person.preview ? (
-                <img src={person.preview} alt="Ảnh người dùng" />
-              ) : (
-                <div className="empty">
-                  <span className="bigIcon">人</span>
-                  <strong>Ảnh người</strong>
-                  <small>Toàn thân hoặc ít nhất thấy rõ vùng cần thay đồ</small>
-                </div>
-              )}
-              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={pickFile(setPerson)} />
-              <span className="change">Chọn ảnh người</span>
-            </label>
-
-            <label className={"dropzone " + (garment.preview ? "hasImage" : "")}>
-              {garment.preview ? (
-                <img src={garment.preview} alt="Ảnh trang phục" />
-              ) : (
-                <div className="empty">
-                  <span className="bigIcon">衣</span>
-                  <strong>Ảnh quần áo</strong>
-                  <small>Ảnh sản phẩm rõ, nền sạch sẽ cho kết quả tốt hơn</small>
-                </div>
-              )}
-              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={pickGarmentFile} />
-              <span className="change">Chọn ảnh quần áo</span>
+            <label className="uploadPersonButton">
+              + Tải ảnh của bạn
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={pickCustomPerson}
+              />
             </label>
           </div>
 
-          <div className="controls">
-            <span className="controlLabel">Loại trang phục</span>
-            <div className="segment">
-              {(Object.keys(categoryLabels) as Category[]).map((item) => (
+          <div className="personLayout">
+            <div className="personPreview">
+              <img src={personPreview} alt="Người được chọn để thử đồ" />
+              <div className="personPreviewMeta">
+                <strong>{customPerson.file ? "Ảnh của bạn" : selectedPerson.name}</strong>
+                <span>
+                  {customPerson.message ||
+                    (customPerson.file
+                      ? "Đang kiểm tra..."
+                      : selectedPerson.note)}
+                </span>
+              </div>
+            </div>
+
+            <div className="samplePeople">
+              {demoPeople.map((person) => (
                 <button
                   type="button"
-                  key={item}
-                  className={category === item ? "active" : ""}
-                  onClick={() => setCategory(item)}
+                  key={person.id}
+                  className={
+                    !customPerson.file && selectedPersonId === person.id
+                      ? "samplePerson active"
+                      : "samplePerson"
+                  }
+                  onClick={() => chooseSamplePerson(person.id)}
                 >
-                  {categoryLabels[item]}
+                  <img src={person.url} alt={person.name} />
+                  <span>{person.name}</span>
                 </button>
               ))}
             </div>
           </div>
+        </section>
 
+        <section className="demoStep">
+          <div className="stepHeading">
+            <div>
+              <span className="step">02</span>
+              <div>
+                <h2>Chọn sản phẩm demo</h2>
+                <p>
+                  Chỉ sản phẩm có <code>tryOnEnabled</code> và asset chuẩn hóa mới xuất hiện.
+                </p>
+              </div>
+            </div>
+            <span className="safeBadge">DEMO SAFE CATALOG</span>
+          </div>
+
+          <div className="productGrid">
+            {demoProducts.map((product) => (
+              <button
+                type="button"
+                key={product.id}
+                className={
+                  selectedProductId === product.id
+                    ? "productCard active"
+                    : "productCard"
+                }
+                onClick={() => chooseProduct(product.id)}
+              >
+                <div className="productImage">
+                  <img src={product.previewUrl} alt={product.name} />
+                  <span>{product.badge}</span>
+                </div>
+                <div className="productInfo">
+                  <strong>{product.name}</strong>
+                  <small>{product.subtitle}</small>
+                  <div>
+                    <span>{categoryLabel[product.category]}</span>
+                    <span>
+                      {"main" in product.assets
+                        ? product.assets.main.photoType
+                        : "top + bottom"}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="runPanel">
+          <div>
+            <span className={"statusPill " + status}>
+              {status === "processing"
+                ? "ĐANG XỬ LÝ"
+                : status === "done"
+                  ? "HOÀN TẤT"
+                  : status === "error"
+                    ? "CẦN KIỂM TRA"
+                    : "SẴN SÀNG"}
+            </span>
+            <strong>{selectedProduct.name}</strong>
+            <p>{statusText}</p>
+          </div>
           <button className="generate" type="submit" disabled={!canSubmit}>
-            <span>{["queued", "processing", "compressing"].includes(status) ? "Đang xử lý" : "Thử đồ bằng AI"}</span>
+            <span>
+              {status === "processing" ? "AI đang thử đồ..." : "Thử đồ bằng AI"}
+            </span>
             <span className="arrow">→</span>
           </button>
         </section>
+      </form>
 
-        <section className="panel resultPanel">
-          <div className="panelHead">
+      <section className="resultSection">
+        <div className="stepHeading">
+          <div>
+            <span className="step">03</span>
             <div>
-              <span className="step">02</span>
               <h2>Kết quả</h2>
+              <p>Đây là visual try-on, không phải công cụ xác định size/fit thực tế.</p>
             </div>
-            <span className={"status " + status}>{statusLabel}</span>
+          </div>
+        </div>
+
+        <div className="resultCompare">
+          <div className="compareCard">
+            <span>BEFORE</span>
+            <img src={personPreview} alt="Ảnh trước khi thử đồ" />
           </div>
 
-          <div className="resultStage">
+          <div className="compareCard result">
+            <span>AFTER</span>
             {result ? (
-              <img src={result} alt="Kết quả AI virtual try-on" />
+              <img src={result} alt="Kết quả thử đồ bằng AI" />
             ) : (
-              <div className="resultEmpty">
+              <div className="resultPlaceholder">
                 <div className="orb" />
                 <strong>Kết quả sẽ xuất hiện ở đây</strong>
-                <span>Hai ảnh → cloud AI → một ảnh mặc thử</span>
+                <small>Chọn người + sản phẩm rồi bấm “Thử đồ bằng AI”.</small>
               </div>
             )}
           </div>
+        </div>
 
-          <div className="statusLine">
-            <span>{statusText || "Chọn hai ảnh để bắt đầu."}</span>
-            {result && (
-              <a href={result} target="_blank" rel="noreferrer">Mở ảnh gốc ↗</a>
-            )}
-          </div>
-        </section>
-      </form>
+        {intermediate && (
+          <details className="debugDetails">
+            <summary>Xem pass trung gian của set</summary>
+            <img src={intermediate} alt="Kết quả pass top của set" />
+          </details>
+        )}
+      </section>
 
       <footer>
-        <span>CloudFit experiment</span>
-        <span>Next.js serverless · Hugging Face ZeroGPU · FASHN VTON v1.5</span>
+        <span>CloudFit controlled demo</span>
+        <span>FASHN VTON v1.5 · ZeroGPU · standardized catalog</span>
       </footer>
     </main>
   );
